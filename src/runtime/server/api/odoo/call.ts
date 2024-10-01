@@ -1,7 +1,5 @@
-import { getOdoo } from '../utils/odooInstance'
+import odoo from '../../utils/odooInstance'
 import { defineEventHandler, readBody, createError } from '#imports'
-
-const odoo = getOdoo()
 
 export default defineEventHandler(async (event) => {
   try {
@@ -9,10 +7,8 @@ export default defineEventHandler(async (event) => {
     if (!isLoggedIn) {
       throw new Error('Sessione non valida. Eseguire il login prima.')
     }
-    const { model, context } = await readBody(event)
-    return await odoo.searchCount(model, {
-      context,
-    })
+    const { model, method, args, kwargs } = await readBody(event)
+    return await odoo.call(model, method, args, kwargs)
   }
   catch (error) {
     throw createError({

@@ -1,18 +1,8 @@
 import { OdooRPC } from 'odoo-jsonrpc-extended'
+import { useRuntimeConfig } from '#imports'
 
-let odooInstance: OdooRPC | null = null
+const odoo = new OdooRPC()
+const config = useRuntimeConfig()
+odoo.setOdooServer(config.public.odooBaseUrl as string)
 
-export function initOdoo(baseUrl: string): OdooRPC {
-  if (!odooInstance) {
-    odooInstance = new OdooRPC()
-    odooInstance.setOdooServer(baseUrl)
-  }
-  return odooInstance
-}
-
-export function getOdoo(): OdooRPC {
-  if (!odooInstance) {
-    throw new Error('Odoo non è stato inizializzato. Chiama initOdoo prima.')
-  }
-  return odooInstance
-}
+export default odoo

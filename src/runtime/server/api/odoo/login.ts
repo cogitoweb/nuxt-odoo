@@ -1,7 +1,5 @@
-import { getOdoo } from '../utils/odooInstance'
+import odoo from '../../utils/odooInstance'
 import { defineEventHandler, readBody, createError } from '#imports'
-
-const odoo = getOdoo()
 
 export default defineEventHandler(async (event) => {
   try {
