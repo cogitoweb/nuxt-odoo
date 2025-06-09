@@ -8,220 +8,247 @@ const odooService = {
     return config.public.odooIsStatic as boolean
   },
 
-  // Metodo per chiamate dirette a Odoo (modalità statica)
-  _callOdooDirect: async (method: string, params: any) => {
-    const config = useRuntimeConfig()
-    
-    const response = await $fetch('/jsonrpc', {
-      method: 'POST',
-      baseURL: config.public.odooBaseUrl as string,
-      body: {
-        jsonrpc: '2.0',
-        method: 'call',
-        params: {
-          service: 'object',
-          method: method,
-          args: params
-        },
-        id: Math.floor(Math.random() * 1000000)
-      }
-    }) as any
-
-    return response.result
-  },
-
-  // Metodo per login diretto (modalità statica)
-  _loginDirect: async (db: string, username: string, password: string) => {
-    const config = useRuntimeConfig()
-    
-    const response = await $fetch('/jsonrpc', {
-      method: 'POST',
-      baseURL: config.public.odooBaseUrl as string,
-      body: {
-        jsonrpc: '2.0',
-        method: 'call',
-        params: {
-          service: 'common',
-          method: 'authenticate',
-          args: [db, username, password, {}]
-        },
-        id: Math.floor(Math.random() * 1000000)
-      }
-    }) as any
-
-    return response.result
-  },
-
-  // Session state per modalità statica
+  // Session state per modalità statica (simile al tuo Cookies class)
   _session: {
-    uid: null as number | null,
-    db: null as string | null,
-    password: null as string | null,
+    session_id: null as string | null,
+    context: { lang: "it_IT" } as any,
+  },
+
+  // Costruisce la richiesta come nel tuo buildRequest
+  _buildRequest: (params: any) => {
+    return {
+      jsonrpc: "2.0",
+      method: "call",
+      params: params,
+      id: Math.floor(Math.random() * 1000000)
+    }
+  },
+
+  // Gestisce errori come nel tuo handleOdooErrors
+  _handleOdooErrors: (response: any) => {
+    if (!response.error) return response.result
+
+    const error = response.error
+
+    // Gestione errori sessione scaduta (dal tuo codice originale)
+    if ((error.code === 100 && error.message === "Odoo Session Expired") ||
+        (error.code === 300 && error.message === "OpenERP WebClient Error" && 
+         error.data.debug && error.data.debug.match("SessionExpiredException"))) {
+      odooService._session.session_id = null
+      throw {
+        data: {
+          message: "Sessione scaduta",
+          data: "session_expired"
+        }
+      }
+    }
+
+    // Altri errori
+    if (error.data && error.data.name === "openerp.exceptions.AccessError") {
+      throw {
+        data: {
+          message: "Errore di accesso",
+          data: error.data.message
+        }
+      }
+    }
+
+    throw {
+      data: {
+        message: error.message || "Errore Odoo",
+        data: error.data?.message || "Errore sconosciuto"
+      }
+    }
+  },
+
+  // Metodo per chiamate dirette (simile al tuo sendRequest)
+  _sendRequest: async (url: string, params: any) => {
+    const config = useRuntimeConfig()
+    const body = odooService._buildRequest(params)
+
+    const headers: any = {
+      "Content-Type": "application/json"
+    }
+
+    // Aggiungi session_id negli headers se disponibile
+    if (odooService._session.session_id) {
+      headers["X-Openerp-Session-Id"] = odooService._session.session_id
+    }
+
+    const response = await $fetch(url, {
+      method: 'POST',
+      baseURL: config.public.odooBaseUrl as string,
+      headers: headers,
+      body: JSON.stringify(body)
+    }) as any
+
+    return odooService._handleOdooErrors(response)
+  },
+
+  // Login diretto (simile al tuo login)
+  _loginDirect: async (db: string, username: string, password: string) => {
+    const params = {
+      db: db,
+      login: username,
+      password: password,
+    }
+
+    const result = await odooService._sendRequest("/web/session/authenticate", params)
+
+    if (!result.uid) {
+      odooService._session.session_id = null
+      throw {
+        data: {
+          message: "Credenziali non valide",
+          data: "Username o password errati"
+        }
+      }
+    }
+
+    // Salva la sessione (come nel tuo codice originale)
+    if (result.user_context) {
+      odooService._session.context = result.user_context
+    }
+    odooService._session.session_id = result.session_id
+
+    return result
+  },
+
+  // isLoggedIn diretto (simile al tuo isLoggedIn)
+  _isLoggedInDirect: async () => {
+    try {
+      const result = await odooService._sendRequest("/web/session/get_session_info", {})
+      if (result.session_id) {
+        odooService._session.session_id = result.session_id
+      }
+      return !!result.uid
+    } catch (error) {
+      return false
+    }
+  },
+
+  // Logout diretto (simile al tuo logout)
+  _logoutDirect: async () => {
+    odooService._session.session_id = null
+    try {
+      const result = await odooService._sendRequest("/web/session/get_session_info", {})
+      if (result.db) {
+        // Forza logout come nel tuo codice
+        await odooService._loginDirect(result.db, "", "")
+      }
+    } catch (error) {
+      // Ignora errori durante logout
+    }
+    return { success: true }
+  },
+
+  // Call diretto (simile al tuo call)
+  _callDirect: async (model: string, method: string, args: any[], kwargs: any) => {
+    kwargs = kwargs || {}
+    kwargs.context = kwargs.context || {}
+    Object.assign(kwargs.context, odooService._session.context)
+
+    const params = {
+      model: model,
+      method: method,
+      args: args,
+      kwargs: kwargs,
+    }
+
+    return await odooService._sendRequest("/web/dataset/call_kw", params)
   },
 
   callOdoo: async (endpoint: string, params: any = {}, headers: any = {}) => {
     const shouldUseDirectApi = odooService._shouldUseDirectApi()
     
     if (shouldUseDirectApi) {
-      // Modalità statica: chiamata diretta a Odoo
-      const config = useRuntimeConfig()
+      // Modalità statica: usa le API web di Odoo come il plugin originale
       
       switch (endpoint) {
         case 'login':
-          const uid = await odooService._loginDirect(params.db, params.username, params.password)
-          // Salva la sessione per le chiamate successive
-          odooService._session.uid = uid
-          odooService._session.db = params.db
-          odooService._session.password = params.password
-          return uid
+          return await odooService._loginDirect(params.db, params.username, params.password)
 
         case 'isLoggedIn':
-          return odooService._session.uid !== null
+          return await odooService._isLoggedInDirect()
 
         case 'logout':
-          odooService._session.uid = null
-          odooService._session.db = null
-          odooService._session.password = null
-          return true
+          return await odooService._logoutDirect()
 
         case 'searchRead':
-          if (!odooService._session.uid) throw new Error('Non autenticato')
-          return await odooService._callOdooDirect('execute_kw', [
-            odooService._session.db,
-            odooService._session.uid,
-            odooService._session.password,
-            params.model,
-            'search_read',
-            [params.domain || []],
-            {
-              fields: params.fields || [],
-              offset: params.offset || 0,
-              limit: params.limit || 0,
-              order: params.order || ''
-            }
-          ])
+          return await odooService._callDirect(params.model, 'search_read', [params.domain || []], {
+            context: params.context || odooService._session.context,
+            fields: params.fields,
+            offset: params.offset || 0,
+            limit: params.limit || 0,
+            order: params.order,
+          })
 
         case 'call':
-          if (!odooService._session.uid) throw new Error('Non autenticato')
-          return await odooService._callOdooDirect('execute_kw', [
-            odooService._session.db,
-            odooService._session.uid,
-            odooService._session.password,
-            params.model,
-            params.method,
-            params.args || [],
-            params.kwargs || {}
-          ])
+          return await odooService._callDirect(params.model, params.method, params.args || [], params.kwargs || {})
 
         case 'create':
-          if (!odooService._session.uid) throw new Error('Non autenticato')
-          return await odooService._callOdooDirect('execute_kw', [
-            odooService._session.db,
-            odooService._session.uid,
-            odooService._session.password,
-            params.model,
-            'create',
-            [params.data]
-          ])
+          return await odooService._callDirect(params.model, 'create', [params.data], {
+            context: params.context || odooService._session.context,
+          })
 
         case 'read':
-          if (!odooService._session.uid) throw new Error('Non autenticato')
-          return await odooService._callOdooDirect('execute_kw', [
-            odooService._session.db,
-            odooService._session.uid,
-            odooService._session.password,
-            params.model,
-            'read',
-            [Array.isArray(params.ids) ? params.ids : [params.ids]],
-            { fields: params.fields || [] }
-          ])
+          const ids = Array.isArray(params.ids) ? params.ids : [params.ids]
+          return await odooService._callDirect(params.model, 'read', [ids], {
+            context: params.context || odooService._session.context,
+            fields: params.fields,
+          })
 
         case 'write':
-          if (!odooService._session.uid) throw new Error('Non autenticato')
-          return await odooService._callOdooDirect('execute_kw', [
-            odooService._session.db,
-            odooService._session.uid,
-            odooService._session.password,
-            params.model,
-            'write',
-            [Array.isArray(params.ids) ? params.ids : [params.ids], params.data]
-          ])
+          const writeIds = Array.isArray(params.ids) ? params.ids : [params.ids]
+          return await odooService._callDirect(params.model, 'write', [writeIds, params.data], {
+            context: params.context || odooService._session.context,
+          })
 
         case 'unlink':
-          if (!odooService._session.uid) throw new Error('Non autenticato')
-          return await odooService._callOdooDirect('execute_kw', [
-            odooService._session.db,
-            odooService._session.uid,
-            odooService._session.password,
-            params.model,
-            'unlink',
-            [Array.isArray(params.ids) ? params.ids : [params.ids]]
-          ])
+          const unlinkIds = Array.isArray(params.ids) ? params.ids : [params.ids]
+          return await odooService._callDirect(params.model, 'unlink', [unlinkIds], {
+            context: params.context || odooService._session.context,
+          })
 
         case 'search':
-          if (!odooService._session.uid) throw new Error('Non autenticato')
-          return await odooService._callOdooDirect('execute_kw', [
-            odooService._session.db,
-            odooService._session.uid,
-            odooService._session.password,
-            params.model,
-            'search',
-            [params.domain || []],
-            {
-              offset: params.offset || 0,
-              limit: params.limit || 0,
-              order: params.order || ''
-            }
-          ])
+          return await odooService._callDirect(params.model, 'search', [params.domain || []], {
+            context: params.context || odooService._session.context,
+            fields: params.fields,
+            offset: params.offset || 0,
+            limit: params.limit || 0,
+            order: params.order,
+          })
 
         case 'searchCount':
-          if (!odooService._session.uid) throw new Error('Non autenticato')
-          return await odooService._callOdooDirect('execute_kw', [
-            odooService._session.db,
-            odooService._session.uid,
-            odooService._session.password,
-            params.model,
-            'search_count',
-            [params.domain || []]
-          ])
+          return await odooService._callDirect(params.model, 'search_count', [params.domain || []], {
+            context: params.context || odooService._session.context,
+          })
 
         case 'fieldsGet':
-          if (!odooService._session.uid) throw new Error('Non autenticato')
-          return await odooService._callOdooDirect('execute_kw', [
-            odooService._session.db,
-            odooService._session.uid,
-            odooService._session.password,
-            params.model,
-            'fields_get',
-            [],
-            {
-              attributes: params.attributes || []
-            }
-          ])
+          return await odooService._callDirect(params.model, 'fields_get', [params.fields || []], {
+            context: params.context || odooService._session.context,
+            attributes: params.attributes || ["string", "help", "type"],
+          })
 
         case 'readGroup':
-          if (!odooService._session.uid) throw new Error('Non autenticato')
-          return await odooService._callOdooDirect('execute_kw', [
-            odooService._session.db,
-            odooService._session.uid,
-            odooService._session.password,
-            params.model,
-            'read_group',
+          return await odooService._callDirect(params.model, 'read_group', 
             [params.args[0] || []], // domain
-            params.args[1] || [], // fields
-            params.args[2] || [], // groupby
             {
+              context: params.context || odooService._session.context,
+              fields: params.args[1] || [], // fields
+              groupby: params.args[2] || [], // groupby
               offset: params.kwargs?.offset || 0,
               limit: params.kwargs?.limit || 0,
               orderby: params.kwargs?.orderby || '',
               lazy: params.kwargs?.lazy !== false
             }
-          ])
+          )
 
         case 'sendSession':
-          // Per la modalità statica, non abbiamo sessioni server-side
-          // Possiamo implementare questo se necessario
-          return { session_id: 'static_mode_session' }
+          return { 
+            success: true, 
+            session_id: odooService._session.session_id 
+          }
 
         default:
           throw new Error(`Endpoint ${endpoint} non supportato in modalità statica`)
