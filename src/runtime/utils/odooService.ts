@@ -24,7 +24,17 @@ const odooService = {
     if ((error.code === 100 && error.message === "Odoo Session Expired") ||
         (error.code === 300 && error.message === "OpenERP WebClient Error" && 
          error.data.debug && error.data.debug.match("SessionExpiredException"))) {
+      
+      // Pulisci la sessione locale
       odooService._session.session_id = null
+      
+      // Pulisci il localStorage (solo se siamo nel browser)
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('session_id')
+        // Reindirizza al login
+        window.location.href = '/production/dashboard/login'
+      }
+      
       throw {
         data: {
           message: "Sessione scaduta",
@@ -244,6 +254,27 @@ const odooService = {
           )
 
         case 'sendSession':
+          // CORRETTO: Imposta il session_id nella sessione interna
+          if (headers.session_id) {
+            odooService._session.session_id = headers.session_id
+            
+            // Testa la validità della sessione facendo una chiamata di test
+            try {
+              await odooService._sendRequest("/web/session/get_session_info", {})
+              return { 
+                success: true, 
+                session_id: headers.session_id 
+              }
+            } catch (error: any) {
+              // Se la sessione non è valida, pulisci tutto
+              odooService._session.session_id = null
+              if (typeof window !== 'undefined') {
+                localStorage.removeItem('session_id')
+              }
+              throw error
+            }
+          }
+          
           return { 
             success: true, 
             session_id: odooService._session.session_id 
@@ -285,7 +316,7 @@ const odooService = {
   read: async (model: string, ids: number | number[], params: any) =>
     await odooService.callOdoo('read', { model, ids, ...params }),
   readGroup: async (model: string, args: any[], kwargs: any) =>
-    await odooService.callOdoo('readGroup', { model, ...kwargs }), // CORRETTO: passa direttamente kwargs che contiene tutti i parametri
+    await odooService.callOdoo('readGroup', { model, ...kwargs }), 
   search: async (model: string, params: any) =>
     await odooService.callOdoo('search', { model, ...params }),
   searchCount: async (model: string, params: any) =>
