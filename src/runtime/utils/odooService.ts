@@ -14,16 +14,6 @@ const odooService = {
     context: { lang: "it_IT" } as any,
   },
 
-  // Costruisce la richiesta come nel tuo buildRequest
-  _buildRequest: (params: any) => {
-    return {
-      jsonrpc: "2.0",
-      method: "call",
-      params: params,
-      id: Math.floor(Math.random() * 1000000)
-    }
-  },
-
   // Gestisce errori come nel tuo handleOdooErrors
   _handleOdooErrors: (response: any) => {
     if (!response.error) return response.result
@@ -64,7 +54,6 @@ const odooService = {
   // Metodo per chiamate dirette (simile al tuo sendRequest)
   _sendRequest: async (url: string, params: any) => {
     const config = useRuntimeConfig()
-    const body = odooService._buildRequest(params)
 
     const headers: any = {
       "Content-Type": "application/json"
@@ -75,11 +64,18 @@ const odooService = {
       headers["X-Openerp-Session-Id"] = odooService._session.session_id
     }
 
+    // Costruisci il body esattamente come nel tuo buildRequest originale
+    const body = {
+      jsonrpc: "2.0",
+      method: "call",
+      params: params // Direttamente l'oggetto params, non wrappato
+    }
+
     const response = await $fetch(url, {
       method: 'POST',
       baseURL: config.public.odooBaseUrl as string,
       headers: headers,
-      body: JSON.stringify(body)
+      body: body // Passa l'oggetto direttamente, $fetch lo stringificherà automaticamente
     }) as any
 
     return odooService._handleOdooErrors(response)
@@ -89,7 +85,7 @@ const odooService = {
   _loginDirect: async (db: string, username: string, password: string) => {
     const params = {
       db: db,
-      login: username,
+      login: username, // Usa "login" come chiave, non "username"
       password: password,
     }
 
