@@ -12,7 +12,7 @@ const odooService = {
   _callOdooDirect: async (method: string, params: any) => {
     const config = useRuntimeConfig()
     
-    return await $fetch('/jsonrpc', {
+    const response = await $fetch('/jsonrpc', {
       method: 'POST',
       baseURL: config.public.odooBaseUrl as string,
       body: {
@@ -25,7 +25,9 @@ const odooService = {
         },
         id: Math.floor(Math.random() * 1000000)
       }
-    })
+    }) as any
+
+    return response.result
   },
 
   // Metodo per login diretto (modalità statica)
@@ -50,32 +52,177 @@ const odooService = {
     return response.result
   },
 
+  // Session state per modalità statica
+  _session: {
+    uid: null as number | null,
+    db: null as string | null,
+    password: null as string | null,
+  },
+
   callOdoo: async (endpoint: string, params: any = {}, headers: any = {}) => {
     const shouldUseDirectApi = odooService._shouldUseDirectApi()
     
     if (shouldUseDirectApi) {
       // Modalità statica: chiamata diretta a Odoo
+      const config = useRuntimeConfig()
+      
       switch (endpoint) {
         case 'login':
-          return await odooService._loginDirect(params.db, params.username, params.password)
+          const uid = await odooService._loginDirect(params.db, params.username, params.password)
+          // Salva la sessione per le chiamate successive
+          odooService._session.uid = uid
+          odooService._session.db = params.db
+          odooService._session.password = params.password
+          return uid
+
+        case 'isLoggedIn':
+          return odooService._session.uid !== null
+
+        case 'logout':
+          odooService._session.uid = null
+          odooService._session.db = null
+          odooService._session.password = null
+          return true
+
         case 'searchRead':
-          return await odooService._callOdooDirect('search_read', [params.model, params.domain || [], params.fields || [], params.offset || 0, params.limit || 0, params.order || ''])
+          if (!odooService._session.uid) throw new Error('Non autenticato')
+          return await odooService._callOdooDirect('execute_kw', [
+            odooService._session.db,
+            odooService._session.uid,
+            odooService._session.password,
+            params.model,
+            'search_read',
+            [params.domain || []],
+            {
+              fields: params.fields || [],
+              offset: params.offset || 0,
+              limit: params.limit || 0,
+              order: params.order || ''
+            }
+          ])
+
         case 'call':
-          return await odooService._callOdooDirect('execute_kw', [params.db, params.uid, params.password, params.model, params.method, params.args || [], params.kwargs || {}])
+          if (!odooService._session.uid) throw new Error('Non autenticato')
+          return await odooService._callOdooDirect('execute_kw', [
+            odooService._session.db,
+            odooService._session.uid,
+            odooService._session.password,
+            params.model,
+            params.method,
+            params.args || [],
+            params.kwargs || {}
+          ])
+
         case 'create':
-          return await odooService._callOdooDirect('create', [params.model, params.data])
+          if (!odooService._session.uid) throw new Error('Non autenticato')
+          return await odooService._callOdooDirect('execute_kw', [
+            odooService._session.db,
+            odooService._session.uid,
+            odooService._session.password,
+            params.model,
+            'create',
+            [params.data]
+          ])
+
         case 'read':
-          return await odooService._callOdooDirect('read', [params.model, Array.isArray(params.ids) ? params.ids : [params.ids], params.fields || []])
+          if (!odooService._session.uid) throw new Error('Non autenticato')
+          return await odooService._callOdooDirect('execute_kw', [
+            odooService._session.db,
+            odooService._session.uid,
+            odooService._session.password,
+            params.model,
+            'read',
+            [Array.isArray(params.ids) ? params.ids : [params.ids]],
+            { fields: params.fields || [] }
+          ])
+
         case 'write':
-          return await odooService._callOdooDirect('write', [params.model, Array.isArray(params.ids) ? params.ids : [params.ids], params.data])
+          if (!odooService._session.uid) throw new Error('Non autenticato')
+          return await odooService._callOdooDirect('execute_kw', [
+            odooService._session.db,
+            odooService._session.uid,
+            odooService._session.password,
+            params.model,
+            'write',
+            [Array.isArray(params.ids) ? params.ids : [params.ids], params.data]
+          ])
+
         case 'unlink':
-          return await odooService._callOdooDirect('unlink', [params.model, Array.isArray(params.ids) ? params.ids : [params.ids]])
+          if (!odooService._session.uid) throw new Error('Non autenticato')
+          return await odooService._callOdooDirect('execute_kw', [
+            odooService._session.db,
+            odooService._session.uid,
+            odooService._session.password,
+            params.model,
+            'unlink',
+            [Array.isArray(params.ids) ? params.ids : [params.ids]]
+          ])
+
         case 'search':
-          return await odooService._callOdooDirect('search', [params.model, params.domain || [], params.offset || 0, params.limit || 0, params.order || ''])
+          if (!odooService._session.uid) throw new Error('Non autenticato')
+          return await odooService._callOdooDirect('execute_kw', [
+            odooService._session.db,
+            odooService._session.uid,
+            odooService._session.password,
+            params.model,
+            'search',
+            [params.domain || []],
+            {
+              offset: params.offset || 0,
+              limit: params.limit || 0,
+              order: params.order || ''
+            }
+          ])
+
         case 'searchCount':
-          return await odooService._callOdooDirect('search_count', [params.model, params.domain || []])
+          if (!odooService._session.uid) throw new Error('Non autenticato')
+          return await odooService._callOdooDirect('execute_kw', [
+            odooService._session.db,
+            odooService._session.uid,
+            odooService._session.password,
+            params.model,
+            'search_count',
+            [params.domain || []]
+          ])
+
         case 'fieldsGet':
-          return await odooService._callOdooDirect('fields_get', [params.model, params.fields || [], params.attributes || []])
+          if (!odooService._session.uid) throw new Error('Non autenticato')
+          return await odooService._callOdooDirect('execute_kw', [
+            odooService._session.db,
+            odooService._session.uid,
+            odooService._session.password,
+            params.model,
+            'fields_get',
+            [],
+            {
+              attributes: params.attributes || []
+            }
+          ])
+
+        case 'readGroup':
+          if (!odooService._session.uid) throw new Error('Non autenticato')
+          return await odooService._callOdooDirect('execute_kw', [
+            odooService._session.db,
+            odooService._session.uid,
+            odooService._session.password,
+            params.model,
+            'read_group',
+            [params.args[0] || []], // domain
+            params.args[1] || [], // fields
+            params.args[2] || [], // groupby
+            {
+              offset: params.kwargs?.offset || 0,
+              limit: params.kwargs?.limit || 0,
+              orderby: params.kwargs?.orderby || '',
+              lazy: params.kwargs?.lazy !== false
+            }
+          ])
+
+        case 'sendSession':
+          // Per la modalità statica, non abbiamo sessioni server-side
+          // Possiamo implementare questo se necessario
+          return { session_id: 'static_mode_session' }
+
         default:
           throw new Error(`Endpoint ${endpoint} non supportato in modalità statica`)
       }
