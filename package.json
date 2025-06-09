@@ -1,6 +1,6 @@
 {
   "name": "nuxt-odoo",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "description": "Nuxt module for odoo call",
   "repository": "your-org/my-module",
   "license": "MIT",
