@@ -171,6 +171,7 @@ const odooService = {
           return await odooService._logoutDirect()
 
         case 'searchRead':
+          // searchRead viene chiamato come: odoo.searchRead(model, {fields, domain})
           return await odooService._callDirect(params.model, 'search_read', [params.domain || []], {
             context: params.context || odooService._session.context,
             fields: params.fields,
@@ -227,16 +228,18 @@ const odooService = {
           })
 
         case 'readGroup':
+          // readGroup viene chiamato come: odoo.readGroup(model, [], kwargs)
+          // I parametri sono tutti dentro l'oggetto kwargs che viene passato direttamente
           return await odooService._callDirect(params.model, 'read_group', 
-            [params.args[0] || []], // domain
+            [params.domain || []], // domain
             {
               context: params.context || odooService._session.context,
-              fields: params.args[1] || [], // fields
-              groupby: params.args[2] || [], // groupby
-              offset: params.kwargs?.offset || 0,
-              limit: params.kwargs?.limit || 0,
-              orderby: params.kwargs?.orderby || '',
-              lazy: params.kwargs?.lazy !== false
+              fields: params.fields || [], 
+              groupby: params.groupby || [],
+              offset: params.offset || 0,
+              limit: params.limit || 0,
+              orderby: params.orderby || '',
+              lazy: params.lazy !== false
             }
           )
 
@@ -282,7 +285,7 @@ const odooService = {
   read: async (model: string, ids: number | number[], params: any) =>
     await odooService.callOdoo('read', { model, ids, ...params }),
   readGroup: async (model: string, args: any[], kwargs: any) =>
-    await odooService.callOdoo('readGroup', { model, args, kwargs }),
+    await odooService.callOdoo('readGroup', { model, ...kwargs }), // CORRETTO: passa direttamente kwargs che contiene tutti i parametri
   search: async (model: string, params: any) =>
     await odooService.callOdoo('search', { model, ...params }),
   searchCount: async (model: string, params: any) =>
